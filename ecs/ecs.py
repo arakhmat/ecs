@@ -22,10 +22,12 @@ import attr
 import pyrsistent
 from pyrsistent.typing import PMap, PSet
 
+UniqueId = int
+
 
 @attr.s(frozen=True, kw_only=True)
 class Entity:
-    unique_id: int = attr.ib()
+    unique_id: UniqueId = attr.ib()
 
 
 ComponentTemplate = TypeVar("ComponentTemplate")
@@ -37,7 +39,7 @@ MapFromEntityToMapFromComponentTypeToComponent = PMap[Entity, MapFromComponentTy
 
 
 class EntityComponentDatabase(Generic[ComponentTemplate], pyrsistent.PClass):
-    _last_unique_id: int = pyrsistent.field(mandatory=True)
+    _last_unique_id: UniqueId = pyrsistent.field(mandatory=True)
     _entities: MapFromEntityToMapFromComponentTypeToComponent[ComponentTemplate] = pyrsistent.field(
         initial=pyrsistent.pmap
     )

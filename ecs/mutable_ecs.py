@@ -22,10 +22,12 @@ from typing import (
 
 import attr
 
+UniqueId = int
+
 
 @attr.s(frozen=True, kw_only=True)
 class Entity:
-    unique_id: int = attr.ib()
+    unique_id: UniqueId = attr.ib()
 
 
 ComponentTemplate = TypeVar("ComponentTemplate")
@@ -39,10 +41,10 @@ MapFromEntityToMapFromComponentTypeToComponent = Dict[Entity, MapFromComponentTy
 class EntityComponentDatabase(Generic[ComponentTemplate]):
     def __init__(
         self,
-        _last_unique_id: int = 0,
+        _last_unique_id: UniqueId = 0,
         _entities: Optional[MapFromEntityToMapFromComponentTypeToComponent[ComponentTemplate]] = None,
     ) -> None:
-        self._last_unique_id: int = _last_unique_id
+        self._last_unique_id: UniqueId = _last_unique_id
         self._entities: MapFromEntityToMapFromComponentTypeToComponent[
             ComponentTemplate
         ] = _entities if _entities else {}
