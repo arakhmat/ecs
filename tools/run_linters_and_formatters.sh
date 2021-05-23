@@ -3,7 +3,7 @@
 set -e
 
 # Formatters
-black --check .
+black --check ecs unit_tests
 
 # Type Checkers
 mypy --config-file mypy.ini ecs

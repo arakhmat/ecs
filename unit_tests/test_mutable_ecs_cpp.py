@@ -1,10 +1,10 @@
-from typing import cast, Generator, Union, List, Type
+from typing import Any, Generator, Union, List, Type
 
 import attr
 import pytest
 from toolz import first, count
 
-from ecs.mutable_ecs import (
+from ecs_cpp.mutable_ecs import (  # pylint: disable=import-error
     EntityComponentDatabase,
     Entity,
     Systems,
@@ -19,8 +19,13 @@ from ecs.mutable_ecs import (
 )
 
 
-@attr.s(frozen=True, kw_only=True)
-class PositionComponent:
+class ComparableType(type):
+    def __lt__(cls: Any, object_b: Any) -> bool:
+        return hash(cls) < hash(object_b)
+
+
+@attr.s(kw_only=True)
+class PositionComponent(metaclass=ComparableType):
     y_axis: int = attr.ib()
     x_axis: int = attr.ib()
 
@@ -30,8 +35,8 @@ class PositionComponent:
         return PositionComponent(y_axis=new_y_axis, x_axis=new_x_axis)
 
 
-@attr.s(frozen=True, kw_only=True)
-class VelocityComponent:
+@attr.s(kw_only=True)
+class VelocityComponent(metaclass=ComparableType):
     y_axis: int = attr.ib()
     x_axis: int = attr.ib()
 
@@ -53,9 +58,7 @@ class RemoveEntityAction:
 ActionUnion = Union[AddComponentAction, RemoveEntityAction]
 
 
-def process_action(
-    ecdb: EntityComponentDatabase[ComponentUnion], action: ActionUnion
-) -> EntityComponentDatabase[ComponentUnion]:
+def process_action(ecdb: EntityComponentDatabase, action: ActionUnion) -> EntityComponentDatabase:
     if isinstance(action, AddComponentAction):
         ecdb = add_component(ecdb=ecdb, entity=action.entity, component=action.component)
     elif isinstance(action, RemoveEntityAction):
@@ -66,13 +69,9 @@ def process_action(
 
 
 class MovementSystem:
-    def __call__(self, *, ecdb: EntityComponentDatabase[ComponentUnion]) -> Generator[AddComponentAction, None, None]:
+    def __call__(self, *, ecdb: EntityComponentDatabase) -> Generator[AddComponentAction, None, None]:
         component_types: List[Type[ComponentUnion]] = [PositionComponent, VelocityComponent]
-
-        for entity, components in query(ecdb=ecdb, component_types=component_types):
-
-            position_component = cast(PositionComponent, components[0])
-            velocity_component = cast(VelocityComponent, components[1])
+        for entity, (position_component, velocity_component) in query(ecdb=ecdb, component_types=component_types):
 
             new_position_component = position_component + velocity_component
 
@@ -81,7 +80,7 @@ class MovementSystem:
 
 
 class RemoveRandomEntitySystem:
-    def __call__(self, *, ecdb: EntityComponentDatabase[ComponentUnion]) -> Generator[RemoveEntityAction, None, None]:
+    def __call__(self, *, ecdb: EntityComponentDatabase) -> Generator[RemoveEntityAction, None, None]:
         # not so random after all :)
         entities = query(ecdb=ecdb)
         entity, _ = first(entities)
@@ -91,21 +90,21 @@ class RemoveRandomEntitySystem:
 SystemUnion = Union[MovementSystem, RemoveRandomEntitySystem]
 
 
-def process_system(
-    *, ecdb: EntityComponentDatabase[ComponentUnion], system: SystemUnion,
-) -> Generator[ActionUnion, None, None]:
-    if isinstance(system, MovementSystem):
-        yield from system(ecdb=ecdb)
-    elif isinstance(system, RemoveRandomEntitySystem):
-        yield from system(ecdb=ecdb)
+def process_system(ecdb: EntityComponentDatabase, system: SystemUnion,) -> List[ActionUnion]:
+    actions = []
+    if isinstance(system, (MovementSystem, RemoveRandomEntitySystem)):
+        for action in system(ecdb=ecdb):
+            actions.append(action)
     else:
         raise ValueError(f"Unrecognized System: {system}")
+
+    return actions
 
 
 @pytest.mark.parametrize("num_original_entities", [10])
 def test_mutable_ecs(num_original_entities: int) -> None:
 
-    ecdb: EntityComponentDatabase[ComponentUnion] = create_ecdb()
+    ecdb: EntityComponentDatabase = create_ecdb()
 
     # Add a few entities
     for _ in range(num_original_entities):

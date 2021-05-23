@@ -1,4 +1,4 @@
-from typing import cast, Generator, Union, Tuple, List, Type
+from typing import cast, Generator, Union, List, Type
 
 import attr
 import pytest
@@ -21,12 +21,19 @@ from ecs import (
 
 @attr.s(frozen=True, kw_only=True)
 class PositionComponent:
-    position: Tuple[int, int] = attr.ib()
+    y_axis: int = attr.ib()
+    x_axis: int = attr.ib()
+
+    def __add__(self, velocity_component: "VelocityComponent") -> "PositionComponent":
+        new_y_axis = self.y_axis + velocity_component.y_axis
+        new_x_axis = self.x_axis + velocity_component.x_axis
+        return PositionComponent(y_axis=new_y_axis, x_axis=new_x_axis)
 
 
 @attr.s(frozen=True, kw_only=True)
 class VelocityComponent:
-    velocity: Tuple[int, int] = attr.ib()
+    y_axis: int = attr.ib()
+    x_axis: int = attr.ib()
 
 
 ComponentUnion = Union[PositionComponent, VelocityComponent]
@@ -66,15 +73,10 @@ class MovementSystem:
             position_component = cast(PositionComponent, position_component)
             velocity_component = cast(VelocityComponent, velocity_component)
 
-            new_position = tuple(
-                position + velocity
-                for position, velocity in zip(position_component.position, velocity_component.velocity)
-            )
-            new_position = cast(Tuple[int, int], new_position)
-            new_position_component: PositionComponent = PositionComponent(position=new_position)
+            new_position_component = position_component + velocity_component
 
             yield AddComponentAction(entity=entity, component=new_position_component)
-            yield AddComponentAction(entity=entity, component=VelocityComponent(velocity=(0, 0)))
+            yield AddComponentAction(entity=entity, component=VelocityComponent(y_axis=0, x_axis=0))
 
 
 class RemoveRandomEntitySystem:
@@ -107,7 +109,7 @@ def test_ecs(num_original_entities: int) -> None:
     # Add a few entities
     for _ in range(num_original_entities):
         ecdb, _ = add_entity(
-            ecdb=ecdb, components=(PositionComponent(position=(0, 0)), VelocityComponent(velocity=(0, 0)))
+            ecdb=ecdb, components=(PositionComponent(y_axis=0, x_axis=0), VelocityComponent(y_axis=0, x_axis=0))
         )
 
     systems: Systems[SystemUnion] = create_systems()
@@ -118,8 +120,7 @@ def test_ecs(num_original_entities: int) -> None:
     while True:
         ecdb = process_systems(ecdb=ecdb, systems=systems, process_system=process_system, process_action=process_action)
 
-        entities = list(query(ecdb=ecdb))
-        assert len(entities) == num_original_entities - loop_index - 1
+        assert len(ecdb) == num_original_entities - loop_index - 1
 
         if count(query(ecdb=ecdb)) == 0:
             break

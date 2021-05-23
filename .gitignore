@@ -3,3 +3,7 @@
 
 # Python
 **/*.egg-info
+
+# C++
+build/
+**/*.so

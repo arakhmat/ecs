@@ -56,6 +56,9 @@ class EntityComponentDatabase(Generic[ComponentTemplate]):
             return is_equal
         return False
 
+    def __len__(self) -> int:
+        return len(self._entities)
+
 
 class FilterFunction(Protocol):
     def __call__(self, components: MapFromComponentTypeToComponent[ComponentTemplate]) -> bool:
@@ -140,6 +143,10 @@ def query(
                 if component_type not in components:
                     continue
                 requested_components.append(components[component_type])
+
+            skip_entity = len(requested_components) < len(components)
+            if skip_entity:
+                continue
 
         yield entity, requested_components
 
