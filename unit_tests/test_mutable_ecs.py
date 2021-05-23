@@ -1,4 +1,4 @@
-from typing import cast, Generator, Union, Tuple, Optional, List, Type
+from typing import cast, Generator, Union, Tuple, List, Type
 
 import attr
 import pytest
@@ -13,7 +13,7 @@ from ecs.mutable_ecs import (
     add_entity,
     add_system,
     process_systems,
-    query_entities,
+    query,
     add_component,
     remove_entity,
 )
@@ -61,15 +61,11 @@ def process_action(
 class MovementSystem:
     def __call__(self, *, ecdb: EntityComponentDatabase[ComponentUnion]) -> Generator[AddComponentAction, None, None]:
         component_types: List[Type[ComponentUnion]] = [PositionComponent, VelocityComponent]
-        for entity, components in query_entities(ecdb=ecdb, component_types=component_types):
-            position_component = cast(Optional[PositionComponent], components[PositionComponent])
-            velocity_component = cast(Optional[VelocityComponent], components[VelocityComponent])
 
-            if position_component is None:
-                continue
+        for entity, components in query(ecdb=ecdb, component_types=component_types):
 
-            if velocity_component is None:
-                continue
+            position_component = cast(PositionComponent, components[0])
+            velocity_component = cast(VelocityComponent, components[1])
 
             new_position = tuple(
                 position + velocity
@@ -85,7 +81,7 @@ class MovementSystem:
 class RemoveRandomEntitySystem:
     def __call__(self, *, ecdb: EntityComponentDatabase[ComponentUnion]) -> Generator[RemoveEntityAction, None, None]:
         # not so random after all :)
-        entities = query_entities(ecdb=ecdb)
+        entities = query(ecdb=ecdb)
         entity, _ = first(entities)
         yield RemoveEntityAction(entity=entity)
 
@@ -123,10 +119,10 @@ def test_mutable_ecs(num_original_entities: int) -> None:
     while True:
         ecdb = process_systems(ecdb=ecdb, systems=systems, process_system=process_system, process_action=process_action)
 
-        entities = list(query_entities(ecdb=ecdb))
+        entities = list(query(ecdb=ecdb))
         assert len(entities) == num_original_entities - loop_index - 1
 
-        if count(query_entities(ecdb=ecdb)) == 0:
+        if count(query(ecdb=ecdb)) == 0:
             break
 
         loop_index += 1

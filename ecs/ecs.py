@@ -6,7 +6,6 @@ In this file, access to private members of EntityComponentDatabase[Component] cl
 
 
 from typing import (
-    cast,
     Protocol,
     Generic,
     Type,
@@ -20,7 +19,7 @@ from typing import (
 
 import attr
 import pyrsistent
-from pyrsistent.typing import PMap, PSet
+from pyrsistent.typing import PMap, PSet, PVector
 
 UniqueId = int
 
@@ -33,8 +32,8 @@ class Entity:
 ComponentTemplate = TypeVar("ComponentTemplate")
 IterableOfComponents = Iterable[ComponentTemplate]
 SetOfComponents = PSet[ComponentTemplate]
+ListOfComponents = PVector[ComponentTemplate]
 MapFromComponentTypeToComponent = PMap[Type[ComponentTemplate], ComponentTemplate]
-MapFromComponentTypeToOptionalComponent = PMap[Type[ComponentTemplate], Optional[ComponentTemplate]]
 MapFromEntityToMapFromComponentTypeToComponent = PMap[Entity, MapFromComponentTypeToComponent[ComponentTemplate]]
 
 
@@ -46,7 +45,7 @@ class EntityComponentDatabase(Generic[ComponentTemplate], pyrsistent.PClass):
 
 
 class FilterFunction(Protocol):
-    def __call__(self, components: MapFromComponentTypeToOptionalComponent[ComponentTemplate]) -> bool:
+    def __call__(self, components: MapFromComponentTypeToComponent[ComponentTemplate]) -> bool:
         ...
 
 
@@ -118,30 +117,26 @@ def get_component(
     return component
 
 
-def query_entities(
+def query(
     *,
     ecdb: EntityComponentDatabase[ComponentTemplate],
     component_types: Optional[Iterable[Type[ComponentTemplate]]] = None,
-    filter_function: Optional[FilterFunction] = None,
-) -> Generator[Tuple[Entity, MapFromComponentTypeToOptionalComponent[ComponentTemplate]], None, None]:
-    for entity, entity_components in ecdb._entities.items():  # pylint: disable=protected-access
+    filter_function: FilterFunction = lambda components: True,
+) -> Generator[Tuple[Entity, ListOfComponents[ComponentTemplate]], None, None]:
+    for entity, components in ecdb._entities.items():  # pylint: disable=protected-access
 
-        components = cast(MapFromComponentTypeToOptionalComponent[ComponentTemplate], entity_components)
+        if not filter_function(components=components):
+            continue
 
-        if filter_function is not None:
-            if not filter_function(components=components):
-                continue
-
-        requested_components: MapFromComponentTypeToOptionalComponent[ComponentTemplate]
+        requested_components: ListOfComponents[ComponentTemplate] = pyrsistent.pvector()
         if component_types is None:
-            requested_components = components
+            for component in components.values():
+                requested_components = requested_components.append(component)
         else:
-            requested_components = pyrsistent.pmap(
-                {
-                    component_type: components[component_type] if component_type in components else None
-                    for component_type in component_types
-                }
-            )
+            for component_type in component_types:
+                if component_type not in components:
+                    continue
+                requested_components = requested_components.append(components[component_type])
 
         yield entity, requested_components
 

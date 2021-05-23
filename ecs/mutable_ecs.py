@@ -6,7 +6,6 @@ In this file, access to private members of EntityComponentDatabase[Component] cl
 
 
 from typing import (
-    cast,
     Protocol,
     Generic,
     Type,
@@ -18,6 +17,7 @@ from typing import (
     Any,
     Dict,
     Set,
+    List,
 )
 
 import attr
@@ -33,8 +33,8 @@ class Entity:
 ComponentTemplate = TypeVar("ComponentTemplate")
 IterableOfComponents = Iterable[ComponentTemplate]
 SetOfComponents = Set[ComponentTemplate]
+ListOfComponents = List[ComponentTemplate]
 MapFromComponentTypeToComponent = Dict[Type[ComponentTemplate], ComponentTemplate]
-MapFromComponentTypeToOptionalComponent = Dict[Type[ComponentTemplate], Optional[ComponentTemplate]]
 MapFromEntityToMapFromComponentTypeToComponent = Dict[Entity, MapFromComponentTypeToComponent[ComponentTemplate]]
 
 
@@ -58,7 +58,7 @@ class EntityComponentDatabase(Generic[ComponentTemplate]):
 
 
 class FilterFunction(Protocol):
-    def __call__(self, components: MapFromComponentTypeToOptionalComponent[ComponentTemplate]) -> bool:
+    def __call__(self, components: MapFromComponentTypeToComponent[ComponentTemplate]) -> bool:
         ...
 
 
@@ -125,28 +125,26 @@ def get_component(
     return component
 
 
-def query_entities(
+def query(
     *,
     ecdb: EntityComponentDatabase[ComponentTemplate],
     component_types: Optional[Iterable[Type[ComponentTemplate]]] = None,
-    filter_function: Optional[FilterFunction] = None,
-) -> Generator[Tuple[Entity, MapFromComponentTypeToOptionalComponent[ComponentTemplate]], None, None]:
-    for entity, entity_components in ecdb._entities.items():  # pylint: disable=protected-access
+    filter_function: FilterFunction = lambda components: True,
+) -> Generator[Tuple[Entity, ListOfComponents[ComponentTemplate]], None, None]:
+    for entity, components in ecdb._entities.items():  # pylint: disable=protected-access
 
-        components = cast(MapFromComponentTypeToOptionalComponent[ComponentTemplate], entity_components)
+        if not filter_function(components=components):
+            continue
 
-        if filter_function is not None:
-            if not filter_function(components=components):
-                continue
-
-        requested_components: MapFromComponentTypeToOptionalComponent[ComponentTemplate]
+        requested_components: ListOfComponents[ComponentTemplate] = []
         if component_types is None:
-            requested_components = components
+            for component in components.values():
+                requested_components.append(component)
         else:
-            requested_components = {
-                component_type: components[component_type] if component_type in components else None
-                for component_type in component_types
-            }
+            for component_type in component_types:
+                if component_type not in components:
+                    continue
+                requested_components.append(components[component_type])
 
         yield entity, requested_components
 
