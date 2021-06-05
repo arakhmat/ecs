@@ -129,13 +129,8 @@ def query(
     *,
     ecdb: EntityComponentDatabase[ComponentTemplate],
     component_types: Optional[Iterable[Type[ComponentTemplate]]] = None,
-    filter_function: FilterFunction = lambda components: True,
 ) -> Generator[Tuple[Entity, ListOfComponents[ComponentTemplate]], None, None]:
     for entity, components in ecdb._entities.items():  # pylint: disable=protected-access
-
-        if not filter_function(components=components):
-            continue
-
         requested_components: ListOfComponents[ComponentTemplate] = []
         if component_types is None:
             for component in components.values():
