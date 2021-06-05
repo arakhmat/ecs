@@ -1,6 +1,7 @@
 #include <optional>
 #include <typeindex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ecs/time_utils.hpp"
@@ -32,14 +33,27 @@ template <typename TypeIndexTemplate, typename ComponentTemplate>
 using MapFromEntityToMapFromComponentTypeToComponent =
     std::unordered_map<Entity, MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate>>;
 
+template <typename ComponentTemplate> using ComponentTable = std::unordered_map<Entity, ComponentTemplate>;
+
+template <typename TypeIndexTemplate, typename ComponentTemplate>
+using ComponentTables = std::unordered_map<TypeIndexTemplate, ComponentTable<ComponentTemplate>>;
+
+template <typename TypeIndexTemplate> using SetOfComponentTypes = std::unordered_set<TypeIndexTemplate>;
+
+template <typename TypeIndexTemplate>
+using MapEntityToSetOfComponentTypes = std::unordered_map<Entity, SetOfComponentTypes<TypeIndexTemplate>>;
+
 template <typename TypeIndexTemplate, typename ComponentTemplate> struct EntityComponentDatabase {
 public:
   UniqueId _last_unique_id;
-  MapFromEntityToMapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> _entities;
+  MapEntityToSetOfComponentTypes<TypeIndexTemplate> _entity_to_component_types;
+  ComponentTables<TypeIndexTemplate, ComponentTemplate> _component_tables;
 
   explicit EntityComponentDatabase() {
     this->_last_unique_id = 0;
-    this->_entities = {};
+
+    this->_entity_to_component_types = {};
+    this->_component_tables = {};
   }
 
 #ifndef ECDB_PYTHON_WRAPPER
@@ -51,7 +65,7 @@ public:
   virtual ~EntityComponentDatabase() {}
 #endif
 
-  std::size_t size() { return this->_entities.size(); }
+  std::size_t size() const { return this->_entity_to_component_types.size(); }
 };
 
 template <typename TypeIndexTemplate, typename ComponentTemplate>
@@ -71,10 +85,8 @@ add_component(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecd
 
   auto component_type = GetComponentTypeFunction()(component);
 
-  auto &entities = ecdb._entities;
-  auto &entity_components = entities[entity];
-
-  entity_components[component_type] = component;
+  ecdb._entity_to_component_types[entity].insert(component_type);
+  ecdb._component_tables[component_type][entity] = component;
 
   return std::move(ecdb);
 }
@@ -88,7 +100,7 @@ add_entity(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
   ecdb._last_unique_id += 1;
 
   auto entity = Entity(unique_id);
-  ecdb._entities[entity] = {};
+  ecdb._entity_to_component_types[entity] = {};
 
   for (auto &&component : components) {
     ecdb = add_component<TypeIndexTemplate, ComponentTemplate, GetComponentTypeFunction>(ecdb, entity, component);
@@ -100,8 +112,13 @@ add_entity(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
 template <typename TypeIndexTemplate, typename ComponentTemplate>
 EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate>
 remove_entity(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb, const Entity &entity) {
-  auto num_erased_keys = ecdb._entities.erase(entity);
+
+  for (auto &&component_type : ecdb._entity_to_component_types.at(entity)) {
+    ecdb._component_tables.at(component_type).erase(entity);
+  }
+  auto num_erased_keys = ecdb._entity_to_component_types.erase(entity);
   if (num_erased_keys == 0) {
+    // TODO: think about adding this kind of exceptions for all "erase" calls
     throw std::runtime_error("Entity is not in EntityComponentDatabase");
   }
   return std::move(ecdb);
@@ -111,9 +128,9 @@ template <typename TypeIndexTemplate, typename ComponentTemplate>
 EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate>
 remove_component(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb, const Entity &entity,
                  TypeIndexTemplate component_type) {
-  auto &entities = ecdb._entities;
-  auto &entity_components = entities[entity];
-  entity_components.erase(component_type);
+
+  ecdb._entity_to_component_types.at(entity).erase(component_type);
+  ecdb._component_tables.at(component_type).erase(entity);
 
   return std::move(ecdb);
 }
@@ -121,10 +138,7 @@ remove_component(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &
 template <typename TypeIndexTemplate, typename ComponentTemplate>
 const ComponentTemplate &get_component(EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
                                        const Entity &entity, TypeIndexTemplate component_type) {
-  auto &entities = ecdb._entities;
-  auto &entity_components = entities.at(entity);
-  auto &component = entity_components.at(component_type);
-  return component;
+  return ecdb._component_tables.at(component_type).at(entity);
 }
 
 template <typename TypeIndexTemplate, typename ComponentTemplate>
@@ -133,31 +147,25 @@ bool DefaultFilterFunction(const MapFromComponentTypeToComponent<TypeIndexTempla
 }
 
 template <typename TypeIndexTemplate, typename ComponentTemplate>
-std::vector<std::tuple<Entity, ListOfComponents<ComponentTemplate>>> query(
-    const EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
-    const std::vector<TypeIndexTemplate> &component_types = {},
-    // https://stackoverflow.com/questions/59356874/candidate-template-ignored-could-not-match-for-template-function-argument
-    std::optional<typename type_utils::type_identity<
-        std::function<bool(const MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> &)>>::type>
-        filter_function = DefaultFilterFunction<TypeIndexTemplate, ComponentTemplate>) {
+std::vector<std::tuple<Entity, ListOfComponents<ComponentTemplate>>>
+query(const EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
+      const std::vector<TypeIndexTemplate> &component_types = {}) {
   std::vector<std::tuple<Entity, ListOfComponents<ComponentTemplate>>> queried_entities;
-  for (auto &&[entity, components] : ecdb._entities) {
 
-    if (filter_function.has_value() and not(*filter_function)(components)) {
-      continue;
-    }
+  auto &component_tables = ecdb._component_tables;
+  for (auto &&[entity, entity_component_types] : ecdb._entity_to_component_types) {
 
     ListOfComponents<ComponentTemplate> requested_components;
     if (component_types.size() == 0) {
-      for (auto &&[component_type, component] : components) {
-        requested_components.push_back(component);
+      for (auto &component_type : entity_component_types) {
+        requested_components.emplace_back(component_tables.at(component_type).at(entity));
       }
     } else {
       for (auto &component_type : component_types) {
-        if (components.count(component_type) == 0) {
+        if (component_tables.at(component_type).count(entity) == 0) {
           continue;
         }
-        requested_components.push_back(components.at(component_type));
+        requested_components.emplace_back(component_tables.at(component_type).at(entity));
       }
 
       bool skip_entity = requested_components.size() < component_types.size();
@@ -171,62 +179,54 @@ std::vector<std::tuple<Entity, ListOfComponents<ComponentTemplate>>> query(
   return queried_entities;
 }
 
-template <typename TypeIndexTemplate, typename ComponentTemplate, int ArraySize, typename Arg>
-bool IsComponentMissing(const MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> &components) {
-  return components.count(typeid(Arg)) == 0;
+template <typename TypeIndexTemplate, int ArraySize, typename Arg>
+bool IsComponentMissing(const Entity &entity, const SetOfComponentTypes<TypeIndexTemplate> &entity_component_types) {
+  return entity_component_types.count(typeid(Arg)) == 0;
 }
 
-template <typename TypeIndexTemplate, typename ComponentTemplate, int ArraySize, typename Arg, typename... Args,
+template <typename TypeIndexTemplate, int ArraySize, typename Arg, typename... Args,
           typename std::enable_if<0 != sizeof...(Args), int>::type = 0>
-bool IsComponentMissing(const MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> &components) {
-  auto skip_entity = IsComponentMissing<TypeIndexTemplate, ComponentTemplate, ArraySize, Arg>(components);
-  skip_entity |= IsComponentMissing<TypeIndexTemplate, ComponentTemplate, ArraySize, Args...>(components);
+bool IsComponentMissing(const Entity &entity, const SetOfComponentTypes<TypeIndexTemplate> &entity_component_types) {
+  auto skip_entity = IsComponentMissing<TypeIndexTemplate, ArraySize, Arg>(entity, entity_component_types);
+  skip_entity |= IsComponentMissing<TypeIndexTemplate, ArraySize, Args...>(entity, entity_component_types);
   return skip_entity;
 }
 
 template <typename TypeIndexTemplate, typename ComponentTemplate, int ArraySize, typename Arg>
-void GetRequestedComonents(const MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> &components,
-                           ArrayOfComponents<ComponentTemplate, ArraySize> &requested_components, int index) {
-  requested_components[index] = components.at(typeid(Arg));
+void GetRequestedComponents(const Entity &entity,
+                            const ComponentTables<TypeIndexTemplate, ComponentTemplate> &component_tables,
+                            ArrayOfComponents<ComponentTemplate, ArraySize> &requested_components, int index) {
+  requested_components[index] = component_tables.at(typeid(Arg)).at(entity);
 }
 
 template <typename TypeIndexTemplate, typename ComponentTemplate, int ArraySize, typename Arg, typename... Args,
           typename std::enable_if<0 != sizeof...(Args), int>::type = 0>
-void GetRequestedComonents(const MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> &components,
-                           ArrayOfComponents<ComponentTemplate, ArraySize> &requested_components, int index) {
-  GetRequestedComonents<TypeIndexTemplate, ComponentTemplate, ArraySize, Arg>(components, requested_components,
-                                                                              index++);
-  GetRequestedComonents<TypeIndexTemplate, ComponentTemplate, ArraySize, Args...>(components, requested_components,
-                                                                                  index);
+void GetRequestedComponents(const Entity &entity,
+                            const ComponentTables<TypeIndexTemplate, ComponentTemplate> &component_tables,
+                            ArrayOfComponents<ComponentTemplate, ArraySize> &requested_components, int index) {
+  GetRequestedComponents<TypeIndexTemplate, ComponentTemplate, ArraySize, Arg>(entity, component_tables,
+                                                                               requested_components, index++);
+  GetRequestedComponents<TypeIndexTemplate, ComponentTemplate, ArraySize, Args...>(entity, component_tables,
+                                                                                   requested_components, index);
 }
-
-template <typename TypeIndexTemplate, typename ComponentTemplate> struct OptionalQueryArguments {
-  std::size_t num_entities_to_reserve = 128;
-  // https://stackoverflow.com/questions/59356874/candidate-template-ignored-could-not-match-for-template-function-argument)
-  std::optional<typename type_utils::type_identity<
-      std::function<bool(const MapFromComponentTypeToComponent<TypeIndexTemplate, ComponentTemplate> &)>>::type>
-      filter_function = DefaultFilterFunction<TypeIndexTemplate, ComponentTemplate>;
-};
 
 template <typename... Args, typename TypeIndexTemplate, typename ComponentTemplate>
 std::vector<std::tuple<Entity, ArrayOfComponents<ComponentTemplate, sizeof...(Args)>>>
 query(const EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
-      const OptionalQueryArguments<TypeIndexTemplate, ComponentTemplate> &optional_query_arguments =
-          OptionalQueryArguments<TypeIndexTemplate, ComponentTemplate>{}) {
+      std::size_t num_entities_to_reserve = 128) {
   std::vector<std::tuple<Entity, ArrayOfComponents<ComponentTemplate, sizeof...(Args)>>> queried_entities;
-  queried_entities.reserve(optional_query_arguments.num_entities_to_reserve);
+  queried_entities.reserve(num_entities_to_reserve);
 
-  for (auto const &[entity, components] : ecdb._entities) {
-    bool skip_entity = optional_query_arguments.filter_function.has_value() and
-                       not(*optional_query_arguments.filter_function)(components);
-    skip_entity |= IsComponentMissing<TypeIndexTemplate, ComponentTemplate, sizeof...(Args), Args...>(components);
+  auto &component_tables = ecdb._component_tables;
+  for (auto &&[entity, entity_component_types] : ecdb._entity_to_component_types) {
+    bool skip_entity = IsComponentMissing<TypeIndexTemplate, sizeof...(Args), Args...>(entity, entity_component_types);
     if (skip_entity) {
       continue;
     }
 
     ArrayOfComponents<ComponentTemplate, sizeof...(Args)> requested_components;
-    GetRequestedComonents<TypeIndexTemplate, ComponentTemplate, sizeof...(Args), Args...>(components,
-                                                                                          requested_components, 0);
+    GetRequestedComponents<TypeIndexTemplate, ComponentTemplate, sizeof...(Args), Args...>(entity, component_tables,
+                                                                                           requested_components, 0);
 
     queried_entities.push_back(std::make_tuple(std::move(entity), std::move(requested_components)));
   }
@@ -251,8 +251,6 @@ public:
   Systems(const Systems &) = delete;
   Systems &operator=(const Systems &) = delete;
   virtual ~Systems() {}
-
-  std::size_t size() { return this->_entities.size(); }
 };
 
 template <typename SystemTemplate> Systems<SystemTemplate> create_systems() { return Systems<SystemTemplate>(); }

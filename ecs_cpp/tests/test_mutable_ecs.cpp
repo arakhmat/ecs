@@ -17,19 +17,19 @@ TEST_CASE("Test EntityComponentDataBase Move-Only Semantics") {
   auto ecdb = ecs::mutable_ecs::create_ecdb<TypeIndex, ComponentType>();
 
   auto [tmp_ecdb_0, tmp_entity_0] = add_entity(ecdb);
-  REQUIRE(ecdb._entities.size() == 0);
-  REQUIRE(tmp_ecdb_0._entities.size() == 1);
+  REQUIRE(ecdb.size() == 0);
+  REQUIRE(tmp_ecdb_0.size() == 1);
 
   auto [tmp_ecdb_1, tmp_entity_1] = add_entity(tmp_ecdb_0);
-  REQUIRE(ecdb._entities.size() == 0);
-  REQUIRE(tmp_ecdb_0._entities.size() == 0);
-  REQUIRE(tmp_ecdb_1._entities.size() == 2);
+  REQUIRE(ecdb.size() == 0);
+  REQUIRE(tmp_ecdb_0.size() == 0);
+  REQUIRE(tmp_ecdb_1.size() == 2);
 
   ecdb = remove_entity(tmp_ecdb_1, tmp_entity_0);
-  REQUIRE(ecdb._entities.size() == 1);
-  REQUIRE(tmp_ecdb_0._entities.size() == 0);
-  REQUIRE(tmp_ecdb_1._entities.size() == 0);
- }
+  REQUIRE(ecdb.size() == 1);
+  REQUIRE(tmp_ecdb_0.size() == 0);
+  REQUIRE(tmp_ecdb_1.size() == 0);
+}
 
 TEST_CASE("Test EntityComponentDataBase APIs") {
   auto ecdb = ecs::mutable_ecs::create_ecdb<TypeIndex, ComponentType>();
@@ -58,18 +58,9 @@ TEST_CASE("Test EntityComponentDataBase APIs") {
   auto compile_time_queried_entities = ecs::mutable_ecs::query<int, float>(ecdb);
   test_queried_entities(compile_time_queried_entities, 2);
 
-  auto filter_function = [](const auto &map) { return false; };
-  auto compile_time_queried_filtered_entities =
-      ecs::mutable_ecs::query<int, float>(ecdb, {.filter_function{filter_function}});
-  test_queried_entities(compile_time_queried_filtered_entities, 0);
-
   auto run_time_queried_entities =
       ecs::mutable_ecs::query(ecdb, std::vector{std::type_index(typeid(int)), std::type_index(typeid(float))});
   test_queried_entities(run_time_queried_entities, 2);
-
-  auto run_time_queried_filtered_entities = ecs::mutable_ecs::query(
-      ecdb, std::vector{std::type_index(typeid(int)), std::type_index(typeid(float))}, filter_function);
-  test_queried_entities(run_time_queried_filtered_entities, 0);
 
   ecdb = remove_entity(ecdb, entity_0);
   REQUIRE(ecdb.size() == 1);
@@ -156,7 +147,7 @@ struct RemoveRandomEntitySystem {
 
   std::vector<ActionUnion> operator()(EntityComponentDatabase &ecdb) const {
     std::vector<ActionUnion> actions;
-    auto &entities = ecdb._entities;
+    auto &entities = ecdb._entity_to_component_types;
     auto &first_entity = entities.begin()->first;
     actions.emplace_back(RemoveEntityAction{.entity{first_entity}});
     return actions;

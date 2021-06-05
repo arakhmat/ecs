@@ -36,8 +36,7 @@ void MutableEcsModule(pybind11::module &mutable_ecs) {
 
   pybind11::class_<EntityComponentDatabase<TypeIndex, ComponentType>>(mutable_ecs, "EntityComponentDatabase")
       .def(pybind11::init<>())
-      .def("__len__",
-           [](const EntityComponentDatabase<TypeIndex, ComponentType> &self) { return self._entities.size(); });
+      .def("__len__", [](const EntityComponentDatabase<TypeIndex, ComponentType> &self) { return self.size(); });
 
   mutable_ecs.def("create_ecdb", &create_ecdb<TypeIndex, ComponentType>);
   mutable_ecs.def("add_entity", &add_entity<TypeIndex, ComponentType, GetPybindComponentType>, pybind11::arg("ecdb"),
@@ -52,14 +51,10 @@ void MutableEcsModule(pybind11::module &mutable_ecs) {
   mutable_ecs.def("get_component", &get_component<TypeIndex, ComponentType>, pybind11::arg("ecdb"),
                   pybind11::arg("entity"), pybind11::arg("component_type"));
 
-  mutable_ecs.def(
-      "query",
-      pybind11::overload_cast<
-          const EntityComponentDatabase<TypeIndex, ComponentType> &, const std::vector<TypeIndex> &,
-          std::optional<std::function<bool(const MapFromComponentTypeToComponent<TypeIndex, ComponentType> &)>>>(
-          &query<TypeIndex, ComponentType>),
-      pybind11::arg("ecdb"), pybind11::arg("component_types") = std::vector<TypeIndex>{},
-      pybind11::arg("filter_function") = std::nullopt);
+  mutable_ecs.def("query",
+                  pybind11::overload_cast<const EntityComponentDatabase<TypeIndex, ComponentType> &,
+                                          const std::vector<TypeIndex> &>(&query<TypeIndex, ComponentType>),
+                  pybind11::arg("ecdb"), pybind11::arg("component_types") = std::vector<TypeIndex>{});
 
   // Systems
   pybind11::class_<Systems<SystemType>>(mutable_ecs, "Systems").def(pybind11::init<>());
