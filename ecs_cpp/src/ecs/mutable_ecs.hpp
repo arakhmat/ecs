@@ -181,7 +181,7 @@ query(const EntityComponentDatabase<TypeIndexTemplate, ComponentTemplate> &ecdb,
 
 template <typename TypeIndexTemplate, int ArraySize, typename Arg>
 bool IsComponentMissing(const Entity &entity, const SetOfComponentTypes<TypeIndexTemplate> &entity_component_types) {
-  return entity_component_types.count(typeid(Arg)) == 0;
+  return entity_component_types.count(ecs::type_utils::get_type_id<Arg>()) == 0;
 }
 
 template <typename TypeIndexTemplate, int ArraySize, typename Arg, typename... Args,
@@ -196,7 +196,7 @@ template <typename TypeIndexTemplate, typename ComponentTemplate, int ArraySize,
 void GetRequestedComponents(const Entity &entity,
                             const ComponentTables<TypeIndexTemplate, ComponentTemplate> &component_tables,
                             ArrayOfComponents<ComponentTemplate, ArraySize> &requested_components, int index) {
-  requested_components[index] = component_tables.at(typeid(Arg)).at(entity);
+  requested_components[index] = component_tables.at(ecs::type_utils::get_type_id<Arg>()).at(entity);
 }
 
 template <typename TypeIndexTemplate, typename ComponentTemplate, int ArraySize, typename Arg, typename... Args,

@@ -7,7 +7,7 @@
 #include "ecs/variant_utils.hpp"
 
 namespace test_basics {
-using TypeIndex = std::type_index;
+using TypeIndex = std::size_t;
 using ComponentType = std::variant<int, float>;
 
 constexpr int INT_COMPONENT = 6;
@@ -59,7 +59,7 @@ TEST_CASE("Test EntityComponentDataBase APIs") {
   test_queried_entities(compile_time_queried_entities, 2);
 
   auto run_time_queried_entities =
-      ecs::mutable_ecs::query(ecdb, std::vector{std::type_index(typeid(int)), std::type_index(typeid(float))});
+      ecs::mutable_ecs::query(ecdb, std::vector{ecs::type_utils::get_type_id<int>(), ecs::type_utils::get_type_id<float>()});
   test_queried_entities(run_time_queried_entities, 2);
 
   ecdb = remove_entity(ecdb, entity_0);
@@ -71,7 +71,7 @@ TEST_CASE("Test EntityComponentDataBase APIs") {
 } // namespace test_basics
 
 namespace test_mutable_ecs_cpp {
-using TypeIndex = std::type_index;
+using TypeIndex = std::size_t;
 
 struct PositionComponent {
   int y;
